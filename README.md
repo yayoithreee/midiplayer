@@ -40,6 +40,8 @@ python src\midi_mixer_player\main.py
 
 再生には SoundFont に加えて FluidSynth 本体が必要です。`pyFluidSynth` は Python から FluidSynth を呼び出すためのライブラリで、FluidSynth の DLL や実行環境そのものは別途必要になる場合があります。再生時に FluidSynth 起動エラーが出る場合は、Windows 用 FluidSynth をインストールしてください。
 
+開発環境では、公式 ZIP を `C:\tools\fluidsynth` に展開した場合、アプリが `bin` フォルダを自動検出します。
+
 ## テスト
 
 ```powershell

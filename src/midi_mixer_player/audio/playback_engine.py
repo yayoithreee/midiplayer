@@ -9,6 +9,7 @@ from typing import Callable
 import mido
 
 from midi_mixer_player.core.models import MixerState
+from midi_mixer_player.audio.fluidsynth_runtime import configure_fluidsynth_runtime
 from midi_mixer_player.midi.tempo_map import build_tempo_map, tick_to_seconds
 
 
@@ -168,6 +169,7 @@ class PlaybackEngine:
             self._all_notes_off()
 
     def _start_synth(self, soundfont_path: Path) -> None:
+        configure_fluidsynth_runtime()
         try:
             import fluidsynth
         except ImportError as exc:
