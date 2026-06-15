@@ -1,6 +1,6 @@
 # MIDI Mixer Player
 
-Windows 向けの 16 チャンネル MIDI ミキサープレーヤーです。現在は Phase 1-2 の実装で、MIDI ファイルの読み込み、基本情報表示、16 チャンネルの使用状況と GM 音色名の表示、SoundFont パスの設定保存までを提供します。再生と WAV 書き出しは次フェーズで実装します。
+Windows 向けの 16 チャンネル MIDI ミキサープレーヤーです。現在は Phase 1-4 の実装で、MIDI ファイルの読み込み、基本情報表示、16 チャンネルのミキサー表示、SoundFont パスの設定保存、FluidSynth による基本再生までを提供します。WAV 書き出しは次フェーズで実装します。
 
 ## セットアップ
 
@@ -30,10 +30,15 @@ python src\midi_mixer_player\main.py
 - `program_change` から GM 音色名を表示
 - チャンネル 10 を Drum として表示
 - SoundFont `.sf2` / `.sf3` のパスを設定し、`settings.json` に保存
+- FluidSynth と SoundFont を使って MIDI を再生
+- Mute / Solo / Volume を再生に反映
+- Play / Pause / Stop / Rewind / Seek の基本操作
 
 ## SoundFont について
 
 このリポジトリには SoundFont を同梱しません。使用する `.sf2` / `.sf3` ファイルはユーザー自身で用意し、アプリ内の `Settings > SoundFont を選択...` から指定してください。
+
+再生には SoundFont に加えて FluidSynth 本体が必要です。`pyFluidSynth` は Python から FluidSynth を呼び出すためのライブラリで、FluidSynth の DLL や実行環境そのものは別途必要になる場合があります。再生時に FluidSynth 起動エラーが出る場合は、Windows 用 FluidSynth をインストールしてください。
 
 ## テスト
 
@@ -41,14 +46,14 @@ python src\midi_mixer_player\main.py
 python -m pytest
 ```
 
-## Phase 3-4 TODO
+## Phase 5-6 TODO
 
-- 16 チャンネルの Mute / Solo / Volume 状態を内部モデルに保存する
-- Reset でミキサー状態、Tempo、Key を初期化する
-- FluidSynth を使った MIDI 再生エンジンを追加する
-- 再生中に Mute / Solo / Volume を反映する
-- UI スレッドをブロックしない再生制御を実装する
-- SoundFont 未設定、FluidSynth 未検出、MIDI 読み込み失敗時の日本語エラーを強化する
+- Tempo 50-200% を再生に反映する
+- Key -12〜+12 semitones を再生に反映する
+- Channel 10 のドラムを移調対象から外す
+- 現在の Mute / Solo / Volume / Tempo / Key を反映した一時 MIDI を作る
+- FluidSynth で 44.1kHz / 16bit / stereo WAV を書き出す
+- 書き出し処理を UI スレッドから分離する
 
 ## 注意
 

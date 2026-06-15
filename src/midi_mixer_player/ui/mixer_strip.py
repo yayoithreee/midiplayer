@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -14,6 +14,10 @@ from midi_mixer_player.core.models import ChannelInfo
 
 
 class MixerStrip(QFrame):
+    mute_changed = Signal(int, bool)
+    solo_changed = Signal(int, bool)
+    volume_changed = Signal(int, int)
+
     def __init__(self, channel_index: int, parent=None) -> None:
         super().__init__(parent)
         self.channel_index = channel_index
@@ -34,14 +38,20 @@ class MixerStrip(QFrame):
 
         self.mute_checkbox = QCheckBox("Mute")
         self.solo_checkbox = QCheckBox("Solo")
-        self.mute_checkbox.setEnabled(False)
-        self.solo_checkbox.setEnabled(False)
+        self.mute_checkbox.toggled.connect(
+            lambda checked: self.mute_changed.emit(self.channel_index, checked)
+        )
+        self.solo_checkbox.toggled.connect(
+            lambda checked: self.solo_changed.emit(self.channel_index, checked)
+        )
 
         self.volume_slider = QSlider(Qt.Orientation.Vertical)
         self.volume_slider.setRange(0, 127)
         self.volume_slider.setValue(100)
-        self.volume_slider.setEnabled(False)
         self.volume_slider.setFixedHeight(150)
+        self.volume_slider.valueChanged.connect(
+            lambda value: self.volume_changed.emit(self.channel_index, value)
+        )
 
         self.level_meter = QProgressBar()
         self.level_meter.setRange(0, 127)
@@ -72,3 +82,8 @@ class MixerStrip(QFrame):
         self.level_meter.setValue(min(info.note_count, 127))
         self.style().unpolish(self)
         self.style().polish(self)
+
+    def reset_state(self) -> None:
+        self.mute_checkbox.setChecked(False)
+        self.solo_checkbox.setChecked(False)
+        self.volume_slider.setValue(100)

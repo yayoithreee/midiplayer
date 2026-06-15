@@ -46,6 +46,17 @@ class MixerState:
     tempo_percent: int = 100
     key_semitones: int = 0
 
+    def has_solo(self) -> bool:
+        return any(channel.solo for channel in self.channels)
+
+    def channel_can_sound(self, channel_index: int) -> bool:
+        channel = self.channels[channel_index]
+        if channel.mute:
+            return False
+        if self.has_solo() and not channel.solo:
+            return False
+        return True
+
     def reset(self) -> None:
         self.tempo_percent = 100
         self.key_semitones = 0

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QGridLayout,
@@ -20,10 +20,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from midi_mixer_player.audio.playback_engine import PlaybackEngine, PlaybackError
+from midi_mixer_player.core.models import MixerState
 from midi_mixer_player.core.settings import AppSettings, SettingsStore
 from midi_mixer_player.midi.parser import MidiLoadError, load_midi_info
 from midi_mixer_player.ui.mixer_strip import MixerStrip
 from midi_mixer_player.ui.settings_dialog import SettingsDialog
+
+
+class PlaybackSignals(QObject):
+    status_changed = Signal(str)
+    position_changed = Signal(float)
 
 
 class MainWindow(QMainWindow):
@@ -32,14 +39,24 @@ class MainWindow(QMainWindow):
         self.settings_store = settings_store
         self.settings = self.settings_store.load()
         self.current_midi_path: Path | None = None
+        self.current_midi_length = 0.0
+        self.mixer_state = MixerState()
+        self.playback_signals = PlaybackSignals()
+        self.playback_engine = PlaybackEngine(
+            status_callback=self.playback_signals.status_changed.emit,
+            position_callback=self.playback_signals.position_changed.emit,
+        )
         self.mixer_strips = [MixerStrip(i) for i in range(16)]
 
         self.setWindowTitle("MIDI Mixer Player")
         self.resize(self.settings.window_width, self.settings.window_height)
         self._build_ui()
+        self.playback_signals.status_changed.connect(self._on_playback_status)
+        self.playback_signals.position_changed.connect(self._on_playback_position)
         self._update_soundfont_status()
 
     def closeEvent(self, event) -> None:
+        self.playback_engine.shutdown()
         self.settings.window_width = self.width()
         self.settings.window_height = self.height()
         self.settings_store.save(self.settings)
@@ -72,10 +89,10 @@ class MainWindow(QMainWindow):
             button.setEnabled(False)
 
         self.open_button.clicked.connect(self.open_midi)
-        self.play_button.clicked.connect(lambda: self._show_phase_message("再生機能は Phase 4 で実装します。"))
-        self.pause_button.clicked.connect(lambda: self._show_phase_message("一時停止は Phase 4 で実装します。"))
-        self.stop_button.clicked.connect(lambda: self._show_phase_message("停止は Phase 4 で実装します。"))
-        self.rewind_button.clicked.connect(lambda: self._show_phase_message("巻き戻しは Phase 4 で実装します。"))
+        self.play_button.clicked.connect(self.play_midi)
+        self.pause_button.clicked.connect(self.pause_midi)
+        self.stop_button.clicked.connect(self.stop_midi)
+        self.rewind_button.clicked.connect(self.rewind_midi)
         self.reset_button.clicked.connect(self.reset_controls)
         self.export_button.clicked.connect(lambda: self._show_phase_message("WAV書き出しは Phase 6 で実装します。"))
 
@@ -90,6 +107,10 @@ class MainWindow(QMainWindow):
 
         self.song_label = QLabel("MIDI: 未選択")
         self.position_label = QLabel("00:00 / 00:00")
+        self.seek_slider = QSlider(Qt.Orientation.Horizontal)
+        self.seek_slider.setRange(0, 0)
+        self.seek_slider.setEnabled(False)
+        self.seek_slider.sliderReleased.connect(self.seek_midi)
         self.soundfont_warning_label = QLabel("")
         self.soundfont_warning_label.setStyleSheet("color: #9a4b00; font-weight: 600;")
 
@@ -140,6 +161,9 @@ class MainWindow(QMainWindow):
         mixer_layout.setContentsMargins(0, 0, 0, 0)
         mixer_layout.setSpacing(6)
         for strip in self.mixer_strips:
+            strip.mute_changed.connect(self.set_channel_mute)
+            strip.solo_changed.connect(self.set_channel_solo)
+            strip.volume_changed.connect(self.set_channel_volume)
             mixer_layout.addWidget(strip)
         mixer_layout.addStretch(1)
 
@@ -150,6 +174,7 @@ class MainWindow(QMainWindow):
         root_layout.addLayout(transport_layout)
         root_layout.addWidget(self.song_label)
         root_layout.addWidget(self.position_label)
+        root_layout.addWidget(self.seek_slider)
         root_layout.addWidget(self.soundfont_warning_label)
         root_layout.addLayout(control_grid)
         root_layout.addWidget(info_group)
@@ -193,6 +218,8 @@ class MainWindow(QMainWindow):
             return
 
         self.current_midi_path = midi_info.path
+        self.current_midi_length = midi_info.estimated_seconds
+        self.playback_engine.load(midi_info.path, midi_info.estimated_seconds)
         self.settings.last_open_dir = str(midi_info.path.parent)
         self.settings_store.save(self.settings)
         self._show_midi_info(midi_info)
@@ -213,21 +240,62 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("設定を保存しました")
 
     def reset_controls(self) -> None:
+        self.mixer_state.reset()
         self.tempo_slider.setValue(100)
         self.key_slider.setValue(0)
+        for strip in self.mixer_strips:
+            strip.reset_state()
+        for index in range(16):
+            self.playback_engine.apply_channel_state(index, self.mixer_state)
         self.statusBar().showMessage("設定を初期値に戻しました")
+
+    def play_midi(self) -> None:
+        try:
+            self.playback_engine.play(self.settings.soundfont_path, self.mixer_state)
+        except PlaybackError as exc:
+            QMessageBox.warning(self, "再生エラー", str(exc))
+            self.statusBar().showMessage("再生できませんでした")
+
+    def pause_midi(self) -> None:
+        self.playback_engine.pause()
+
+    def stop_midi(self) -> None:
+        self.playback_engine.stop()
+
+    def rewind_midi(self) -> None:
+        self.playback_engine.seek(0.0, self.mixer_state)
+        self._on_playback_position(0.0)
+
+    def seek_midi(self) -> None:
+        self.playback_engine.seek(float(self.seek_slider.value()), self.mixer_state)
+
+    def set_channel_mute(self, channel_index: int, checked: bool) -> None:
+        self.mixer_state.channels[channel_index].mute = checked
+        self.playback_engine.apply_channel_state(channel_index, self.mixer_state)
+
+    def set_channel_solo(self, channel_index: int, checked: bool) -> None:
+        self.mixer_state.channels[channel_index].solo = checked
+        for index in range(16):
+            self.playback_engine.apply_channel_state(index, self.mixer_state)
+
+    def set_channel_volume(self, channel_index: int, value: int) -> None:
+        self.mixer_state.channels[channel_index].volume = value
+        self.playback_engine.apply_channel_state(channel_index, self.mixer_state)
 
     def show_about(self) -> None:
         QMessageBox.information(
             self,
             "MIDI Mixer Player",
-            "MIDI Mixer Player\n\nPhase 1-2: MIDI読み込みと16チャンネル表示を実装中です。",
+            "MIDI Mixer Player\n\nPhase 3-4: ミキサー状態とFluidSynth再生を実装中です。",
         )
 
     def _show_midi_info(self, midi_info) -> None:
         length_text = self._format_seconds(midi_info.estimated_seconds)
         self.song_label.setText(f"MIDI: {midi_info.title}")
         self.position_label.setText(f"00:00 / {length_text}")
+        self.seek_slider.setRange(0, max(0, int(round(midi_info.estimated_seconds))))
+        self.seek_slider.setValue(0)
+        self.seek_slider.setEnabled(True)
         self.info_file.setText(midi_info.path.name)
         self.info_format.setText(str(midi_info.midi_format))
         self.info_tracks.setText(str(midi_info.track_count))
@@ -248,6 +316,16 @@ class MainWindow(QMainWindow):
 
     def _show_phase_message(self, message: str) -> None:
         QMessageBox.information(self, "未実装", message)
+
+    def _on_playback_status(self, message: str) -> None:
+        self.statusBar().showMessage(message)
+
+    def _on_playback_position(self, seconds: float) -> None:
+        if not self.seek_slider.isSliderDown():
+            self.seek_slider.setValue(int(round(seconds)))
+        self.position_label.setText(
+            f"{self._format_seconds(seconds)} / {self._format_seconds(self.current_midi_length)}"
+        )
 
     @staticmethod
     def _format_seconds(seconds: float) -> str:
