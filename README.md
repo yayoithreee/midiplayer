@@ -1,6 +1,6 @@
 # MIDI Mixer Player
 
-Windows 向けの 16 チャンネル MIDI ミキサープレーヤーです。現在は Phase 1-6 の実装で、MIDI ファイルの読み込み、基本情報表示、16 チャンネルのミキサー表示、SoundFont パスの設定保存、FluidSynth による再生、Tempo/Key 変更、WAV 書き出しまでを提供します。
+Windows 向けの 16 チャンネル MIDI ミキサープレーヤーです。MIDI ファイルの読み込み、基本情報表示、16 チャンネルのミキサー表示、SoundFont パスの設定保存、FluidSynth による再生、Tempo/Key 変更、WAV 書き出し、PyInstaller による exe ビルドまでを提供します。
 
 ## セットアップ
 
@@ -53,11 +53,30 @@ python src\midi_mixer_player\main.py
 python -m pytest
 ```
 
-## Phase 7 TODO
+## exe ビルド
 
-- PyInstaller で Windows 向けポータブル exe を作る
-- README に exe ビルド手順と既知の制限を追記する
-- FluidSynth / SoundFont の同梱方針とライセンス確認を整理する
+```powershell
+.\build_exe.ps1
+```
+
+ビルド後の起動ファイル:
+
+```text
+dist\MIDI Mixer Player\MIDI Mixer Player.exe
+```
+
+## 配布時の注意
+
+- SoundFont は同梱していません。ユーザーが `.sf2` / `.sf3` を用意して Settings から指定してください。
+- FluidSynth 本体は同梱していません。開発環境では公式 ZIP を `C:\tools\fluidsynth` に展開すると自動検出します。
+- FluidSynth や SoundFont を同梱する場合は、事前にライセンスを確認し、`THIRD_PARTY_LICENSES.md` に明記してください。
+
+## 既知の制限
+
+- MP3書き出しは未実装です。
+- プロジェクトファイル `.mmix.json` の保存/読み込みは未実装です。
+- レベルメーターは実音量解析ではなく簡易表示です。
+- FluidSynth 本体または SoundFont が未設定の場合、再生とWAV書き出しはできません。
 
 ## 注意
 
