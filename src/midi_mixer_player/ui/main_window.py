@@ -119,17 +119,13 @@ class MainWindow(QMainWindow):
         self.tempo_slider.setRange(50, 200)
         self.tempo_slider.setValue(100)
         self.tempo_value_label = QLabel("100%")
-        self.tempo_slider.valueChanged.connect(
-            lambda value: self.tempo_value_label.setText(f"{value}%")
-        )
+        self.tempo_slider.valueChanged.connect(self.set_tempo)
 
         self.key_slider = QSlider(Qt.Orientation.Horizontal)
         self.key_slider.setRange(-12, 12)
         self.key_slider.setValue(0)
         self.key_value_label = QLabel("0")
-        self.key_slider.valueChanged.connect(
-            lambda value: self.key_value_label.setText(str(value))
-        )
+        self.key_slider.valueChanged.connect(self.set_key)
 
         control_grid.addWidget(QLabel("Tempo"), 0, 0)
         control_grid.addWidget(self.tempo_slider, 0, 1)
@@ -257,7 +253,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("再生できませんでした")
 
     def pause_midi(self) -> None:
-        self.playback_engine.pause()
+        self.playback_engine.pause(self.mixer_state)
 
     def stop_midi(self) -> None:
         self.playback_engine.stop()
@@ -281,6 +277,16 @@ class MainWindow(QMainWindow):
     def set_channel_volume(self, channel_index: int, value: int) -> None:
         self.mixer_state.channels[channel_index].volume = value
         self.playback_engine.apply_channel_state(channel_index, self.mixer_state)
+
+    def set_tempo(self, value: int) -> None:
+        self.mixer_state.tempo_percent = value
+        self.tempo_value_label.setText(f"{value}%")
+        self.playback_engine.apply_tempo_or_key_change(self.mixer_state)
+
+    def set_key(self, value: int) -> None:
+        self.mixer_state.key_semitones = value
+        self.key_value_label.setText(str(value))
+        self.playback_engine.apply_tempo_or_key_change(self.mixer_state)
 
     def show_about(self) -> None:
         QMessageBox.information(

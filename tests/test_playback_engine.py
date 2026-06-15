@@ -37,3 +37,20 @@ def test_mixer_state_mute_and_solo_rules():
     state.channels[1].solo = True
     assert state.channel_can_sound(0) is False
     assert state.channel_can_sound(1) is True
+
+
+def test_mixer_state_reset_restores_tempo_and_key():
+    state = MixerState()
+    state.tempo_percent = 150
+    state.key_semitones = -5
+    state.channels[0].mute = True
+    state.channels[0].solo = True
+    state.channels[0].volume = 64
+
+    state.reset()
+
+    assert state.tempo_percent == 100
+    assert state.key_semitones == 0
+    assert state.channels[0].mute is False
+    assert state.channels[0].solo is False
+    assert state.channels[0].volume == 100

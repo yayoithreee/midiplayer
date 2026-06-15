@@ -11,6 +11,7 @@ import mido
 from midi_mixer_player.core.models import MixerState
 from midi_mixer_player.audio.fluidsynth_runtime import configure_fluidsynth_runtime
 from midi_mixer_player.midi.tempo_map import build_tempo_map, tick_to_seconds
+from midi_mixer_player.midi.transformer import transpose_note
 
 
 class PlaybackError(RuntimeError):
@@ -42,6 +43,8 @@ class PlaybackEngine:
         self._soundfont_path: Path | None = None
         self._started_at = 0.0
         self._start_offset = 0.0
+        self._anchor_wall_time = 0.0
+        self._anchor_position = 0.0
         self.current_position = 0.0
         self.total_seconds = 0.0
 
@@ -70,7 +73,8 @@ class PlaybackEngine:
 
         if self.is_paused and start_offset is None:
             self._pause_event.clear()
-            self._started_at = time.monotonic() - self.current_position
+            self._anchor_wall_time = time.monotonic()
+            self._anchor_position = self.current_position
             self._notify_status("再生中")
             return
 
@@ -81,7 +85,8 @@ class PlaybackEngine:
         self._pause_event.clear()
         self._start_offset = max(0.0, start_offset if start_offset is not None else self.current_position)
         self.current_position = self._start_offset
-        self._started_at = time.monotonic() - self._start_offset
+        self._anchor_wall_time = time.monotonic()
+        self._anchor_position = self._start_offset
         self._thread = threading.Thread(
             target=self._run,
             args=(mixer_state,),
@@ -91,10 +96,10 @@ class PlaybackEngine:
         self._thread.start()
         self._notify_status("再生中")
 
-    def pause(self) -> None:
+    def pause(self, mixer_state: MixerState) -> None:
         if not self._thread or not self._thread.is_alive():
             return
-        self.current_position = max(0.0, time.monotonic() - self._started_at)
+        self.current_position = self._song_position(mixer_state)
         self._pause_event.set()
         self._all_notes_off()
         self._notify_status("一時停止")
@@ -127,6 +132,13 @@ class PlaybackEngine:
             if channel.mute or (mixer_state.has_solo() and not channel.solo):
                 self._synth.cc(channel_index, 123, 0)
 
+    def apply_tempo_or_key_change(self, mixer_state: MixerState) -> None:
+        if self._thread and self._thread.is_alive():
+            self.current_position = self._song_position(mixer_state)
+            self._anchor_wall_time = time.monotonic()
+            self._anchor_position = self.current_position
+            self._all_notes_off()
+
     def shutdown(self) -> None:
         self.stop()
         if self._synth is not None:
@@ -151,12 +163,13 @@ class PlaybackEngine:
                     continue
 
                 target = self._messages[next_index].seconds
-                now_position = time.monotonic() - self._started_at
+                now_position = self._song_position(mixer_state)
                 self.current_position = min(now_position, self.total_seconds)
                 self._notify_position(self.current_position)
 
                 if now_position + 0.002 < target:
-                    time.sleep(min(0.02, target - now_position))
+                    tempo_factor = max(0.01, mixer_state.tempo_percent / 100)
+                    time.sleep(min(0.02, (target - now_position) / tempo_factor))
                     continue
 
                 self._send_message(self._messages[next_index].message, mixer_state)
@@ -221,12 +234,14 @@ class PlaybackEngine:
         with self._lock:
             if message.type == "note_on":
                 velocity = message.velocity
+                note = transpose_note(message.note, channel_index, mixer_state.key_semitones)
                 if velocity > 0:
-                    self._synth.noteon(channel_index, message.note, velocity)
+                    self._synth.noteon(channel_index, note, velocity)
                 else:
-                    self._synth.noteoff(channel_index, message.note)
+                    self._synth.noteoff(channel_index, note)
             elif message.type == "note_off":
-                self._synth.noteoff(channel_index, message.note)
+                note = transpose_note(message.note, channel_index, mixer_state.key_semitones)
+                self._synth.noteoff(channel_index, note)
             elif message.type == "control_change":
                 value = message.value
                 if message.control == 7:
@@ -256,6 +271,12 @@ class PlaybackEngine:
     def _notify_position(self, seconds: float) -> None:
         if self.position_callback:
             self.position_callback(seconds)
+
+    def _song_position(self, mixer_state: MixerState | None) -> float:
+        tempo_percent = mixer_state.tempo_percent if mixer_state else 100
+        tempo_factor = max(0.01, tempo_percent / 100)
+        elapsed_wall = time.monotonic() - self._anchor_wall_time
+        return max(0.0, self._anchor_position + elapsed_wall * tempo_factor)
 
 
 def expand_midi_messages(midi_path: Path) -> list[TimedMessage]:

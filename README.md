@@ -1,6 +1,6 @@
 # MIDI Mixer Player
 
-Windows 向けの 16 チャンネル MIDI ミキサープレーヤーです。現在は Phase 1-4 の実装で、MIDI ファイルの読み込み、基本情報表示、16 チャンネルのミキサー表示、SoundFont パスの設定保存、FluidSynth による基本再生までを提供します。WAV 書き出しは次フェーズで実装します。
+Windows 向けの 16 チャンネル MIDI ミキサープレーヤーです。現在は Phase 1-5 の実装で、MIDI ファイルの読み込み、基本情報表示、16 チャンネルのミキサー表示、SoundFont パスの設定保存、FluidSynth による再生、Tempo/Key 変更までを提供します。WAV 書き出しは次フェーズで実装します。
 
 ## セットアップ
 
@@ -33,6 +33,9 @@ python src\midi_mixer_player\main.py
 - FluidSynth と SoundFont を使って MIDI を再生
 - Mute / Solo / Volume を再生に反映
 - Play / Pause / Stop / Rewind / Seek の基本操作
+- Tempo 50-200% を再生に反映
+- Key -12〜+12 semitones を再生に反映
+- チャンネル 10 のドラムは Key 変更の対象外
 
 ## SoundFont について
 
@@ -48,11 +51,8 @@ python src\midi_mixer_player\main.py
 python -m pytest
 ```
 
-## Phase 5-6 TODO
+## Phase 6 TODO
 
-- Tempo 50-200% を再生に反映する
-- Key -12〜+12 semitones を再生に反映する
-- Channel 10 のドラムを移調対象から外す
 - 現在の Mute / Solo / Volume / Tempo / Key を反映した一時 MIDI を作る
 - FluidSynth で 44.1kHz / 16bit / stereo WAV を書き出す
 - 書き出し処理を UI スレッドから分離する
