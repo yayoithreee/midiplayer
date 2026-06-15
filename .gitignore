@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+dist/
+build/
+*.spec
+settings.json
+*.mmix.json
+sample_midis/*.mid
+sample_midis/*.midi
+sample_midis/*.MID
+sample_midis/*.MIDI

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "midi-mixer-player"
+version = "0.1.0"
+description = "A Windows desktop MIDI mixer player with a 16-channel mixer UI."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PySide6>=6.7",
+  "mido>=1.3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+midi-mixer-player = "midi_mixer_player.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
