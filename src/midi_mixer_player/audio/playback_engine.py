@@ -11,7 +11,7 @@ import mido
 from midi_mixer_player.core.models import MixerState
 from midi_mixer_player.audio.fluidsynth_runtime import configure_fluidsynth_runtime
 from midi_mixer_player.midi.tempo_map import build_tempo_map, tick_to_seconds
-from midi_mixer_player.midi.transformer import transpose_note
+from midi_mixer_player.midi.transformer import DRUM_CHANNEL_INDEX, transpose_note
 
 
 class PlaybackError(RuntimeError):
@@ -204,7 +204,10 @@ class PlaybackEngine:
             synth.start(driver="dsound")
             soundfont_id = synth.sfload(str(soundfont_path))
             for channel in range(16):
-                synth.program_select(channel, soundfont_id, 0, 0)
+                if channel == DRUM_CHANNEL_INDEX:
+                    synth.program_select(channel, soundfont_id, 128, 0)
+                else:
+                    synth.program_select(channel, soundfont_id, 0, 0)
         except Exception as exc:
             raise PlaybackError(
                 "FluidSynth の起動に失敗しました。FluidSynth 本体がインストールされているか確認してください。"
@@ -248,7 +251,7 @@ class PlaybackEngine:
                     value = round(value * channel_state.volume / 127)
                 self._synth.cc(channel_index, message.control, max(0, min(127, value)))
             elif message.type == "program_change":
-                if self._soundfont_id is not None:
+                if self._soundfont_id is not None and channel_index != DRUM_CHANNEL_INDEX:
                     self._synth.program_select(channel_index, self._soundfont_id, 0, message.program)
             elif message.type == "pitchwheel":
                 self._synth.pitch_bend(channel_index, message.pitch)

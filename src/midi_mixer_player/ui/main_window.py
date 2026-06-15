@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QGridLayout,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from midi_mixer_player.audio.export_wav import ExportError, export_wav
 from midi_mixer_player.audio.playback_engine import PlaybackEngine, PlaybackError
 from midi_mixer_player.core.models import MixerState
 from midi_mixer_player.core.settings import AppSettings, SettingsStore
@@ -33,6 +35,34 @@ class PlaybackSignals(QObject):
     position_changed = Signal(float)
 
 
+class ExportWorker(QObject):
+    finished = Signal(str)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        midi_path: Path,
+        soundfont_path: Path,
+        output_path: Path,
+        mixer_state: MixerState,
+    ) -> None:
+        super().__init__()
+        self.midi_path = midi_path
+        self.soundfont_path = soundfont_path
+        self.output_path = output_path
+        self.mixer_state = mixer_state
+
+    def run(self) -> None:
+        try:
+            export_wav(self.midi_path, self.soundfont_path, self.output_path, self.mixer_state)
+        except ExportError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(f"予期しないエラーでWAV書き出しに失敗しました: {exc}")
+        else:
+            self.finished.emit(str(self.output_path))
+
+
 class MainWindow(QMainWindow):
     def __init__(self, settings_store: SettingsStore, parent=None) -> None:
         super().__init__(parent)
@@ -42,6 +72,8 @@ class MainWindow(QMainWindow):
         self.current_midi_length = 0.0
         self.mixer_state = MixerState()
         self.playback_signals = PlaybackSignals()
+        self.export_thread: QThread | None = None
+        self.export_worker: ExportWorker | None = None
         self.playback_engine = PlaybackEngine(
             status_callback=self.playback_signals.status_changed.emit,
             position_callback=self.playback_signals.position_changed.emit,
@@ -94,7 +126,7 @@ class MainWindow(QMainWindow):
         self.stop_button.clicked.connect(self.stop_midi)
         self.rewind_button.clicked.connect(self.rewind_midi)
         self.reset_button.clicked.connect(self.reset_controls)
-        self.export_button.clicked.connect(lambda: self._show_phase_message("WAV書き出しは Phase 6 で実装します。"))
+        self.export_button.clicked.connect(self.export_current_wav)
 
         transport_layout.addWidget(self.open_button)
         transport_layout.addWidget(self.play_button)
@@ -192,7 +224,7 @@ class MainWindow(QMainWindow):
 
         open_action.triggered.connect(self.open_midi)
         settings_action.triggered.connect(self.open_settings)
-        export_action.triggered.connect(lambda: self._show_phase_message("WAV書き出しは Phase 6 で実装します。"))
+        export_action.triggered.connect(self.export_current_wav)
         help_action.triggered.connect(self.show_about)
 
     def open_midi(self) -> None:
@@ -265,6 +297,48 @@ class MainWindow(QMainWindow):
     def seek_midi(self) -> None:
         self.playback_engine.seek(float(self.seek_slider.value()), self.mixer_state)
 
+    def export_current_wav(self) -> None:
+        if self.current_midi_path is None:
+            QMessageBox.information(self, "WAV書き出し", "先にMIDIファイルを開いてください。")
+            return
+        if not self.settings.soundfont_path:
+            QMessageBox.warning(
+                self,
+                "WAV書き出し",
+                "SoundFont が未設定です。Settings から .sf2 / .sf3 を選択してください。",
+            )
+            return
+
+        default_name = self.current_midi_path.with_suffix(".wav").name
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "WAVを書き出す",
+            str(Path(self.settings.last_open_dir or self.current_midi_path.parent) / default_name),
+            "WAV Files (*.wav);;All Files (*)",
+        )
+        if not output_path:
+            return
+        if not output_path.lower().endswith(".wav"):
+            output_path += ".wav"
+
+        self.export_button.setEnabled(False)
+        self.statusBar().showMessage("WAVを書き出しています...")
+        self.export_thread = QThread(self)
+        self.export_worker = ExportWorker(
+            self.current_midi_path,
+            Path(self.settings.soundfont_path),
+            Path(output_path),
+            deepcopy(self.mixer_state),
+        )
+        self.export_worker.moveToThread(self.export_thread)
+        self.export_thread.started.connect(self.export_worker.run)
+        self.export_worker.finished.connect(self._on_export_finished)
+        self.export_worker.failed.connect(self._on_export_failed)
+        self.export_worker.finished.connect(self.export_thread.quit)
+        self.export_worker.failed.connect(self.export_thread.quit)
+        self.export_thread.finished.connect(self._cleanup_export_thread)
+        self.export_thread.start()
+
     def set_channel_mute(self, channel_index: int, checked: bool) -> None:
         self.mixer_state.channels[channel_index].mute = checked
         self.playback_engine.apply_channel_state(channel_index, self.mixer_state)
@@ -332,6 +406,23 @@ class MainWindow(QMainWindow):
         self.position_label.setText(
             f"{self._format_seconds(seconds)} / {self._format_seconds(self.current_midi_length)}"
         )
+
+    def _on_export_finished(self, output_path: str) -> None:
+        self.statusBar().showMessage(f"WAVを書き出しました: {output_path}")
+        QMessageBox.information(self, "WAV書き出し", f"保存しました:\n{output_path}")
+
+    def _on_export_failed(self, message: str) -> None:
+        self.statusBar().showMessage("WAV書き出しに失敗しました")
+        QMessageBox.warning(self, "WAV書き出しエラー", message)
+
+    def _cleanup_export_thread(self) -> None:
+        self.export_button.setEnabled(self.current_midi_path is not None)
+        if self.export_worker is not None:
+            self.export_worker.deleteLater()
+        if self.export_thread is not None:
+            self.export_thread.deleteLater()
+        self.export_worker = None
+        self.export_thread = None
 
     @staticmethod
     def _format_seconds(seconds: float) -> str:
