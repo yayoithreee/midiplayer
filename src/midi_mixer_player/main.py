@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from midi_mixer_player.app import create_app_window
 
