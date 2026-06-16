@@ -38,6 +38,7 @@ python src\midi_mixer_player\main.py
 - チャンネル 10 のドラムは Key 変更の対象外
 - 現在の Mute / Solo / Volume / Tempo / Key を反映して WAV 書き出し
 - FluidSynth で 44.1kHz / 16bit / stereo WAV を生成
+- `.mmix.json` でプロジェクト保存/読み込み
 
 ## SoundFont について
 
@@ -74,7 +75,6 @@ dist\MIDI Mixer Player\MIDI Mixer Player.exe
 ## 既知の制限
 
 - MP3書き出しは未実装です。
-- プロジェクトファイル `.mmix.json` の保存/読み込みは未実装です。
 - レベルメーターは実音量解析ではなく簡易表示です。
 - FluidSynth 本体または SoundFont が未設定の場合、再生とWAV書き出しはできません。
 

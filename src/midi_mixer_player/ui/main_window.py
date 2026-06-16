@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from midi_mixer_player.audio.export_wav import ExportError, export_wav
 from midi_mixer_player.audio.playback_engine import PlaybackEngine, PlaybackError
 from midi_mixer_player.core.models import MixerState
+from midi_mixer_player.core.project_file import ProjectFileError, load_project, save_project
 from midi_mixer_player.core.settings import AppSettings, SettingsStore
 from midi_mixer_player.midi.parser import MidiLoadError, load_midi_info
 from midi_mixer_player.ui.mixer_strip import MixerStrip
@@ -104,6 +105,8 @@ class MainWindow(QMainWindow):
 
         transport_layout = QHBoxLayout()
         self.open_button = QPushButton("Open MIDI")
+        self.open_project_button = QPushButton("Open Project")
+        self.save_project_button = QPushButton("Save Project")
         self.play_button = QPushButton("Play")
         self.pause_button = QPushButton("Pause")
         self.stop_button = QPushButton("Stop")
@@ -116,11 +119,14 @@ class MainWindow(QMainWindow):
             self.pause_button,
             self.stop_button,
             self.rewind_button,
+            self.save_project_button,
             self.export_button,
         ]:
             button.setEnabled(False)
 
         self.open_button.clicked.connect(self.open_midi)
+        self.open_project_button.clicked.connect(self.open_project)
+        self.save_project_button.clicked.connect(self.save_project)
         self.play_button.clicked.connect(self.play_midi)
         self.pause_button.clicked.connect(self.pause_midi)
         self.stop_button.clicked.connect(self.stop_midi)
@@ -129,6 +135,8 @@ class MainWindow(QMainWindow):
         self.export_button.clicked.connect(self.export_current_wav)
 
         transport_layout.addWidget(self.open_button)
+        transport_layout.addWidget(self.open_project_button)
+        transport_layout.addWidget(self.save_project_button)
         transport_layout.addWidget(self.play_button)
         transport_layout.addWidget(self.pause_button)
         transport_layout.addWidget(self.stop_button)
@@ -218,11 +226,15 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         open_action = toolbar.addAction("Open")
+        open_project_action = toolbar.addAction("Open Project")
+        save_project_action = toolbar.addAction("Save Project")
         settings_action = toolbar.addAction("Settings")
         export_action = toolbar.addAction("Export")
         help_action = toolbar.addAction("Help")
 
         open_action.triggered.connect(self.open_midi)
+        open_project_action.triggered.connect(self.open_project)
+        save_project_action.triggered.connect(self.save_project)
         settings_action.triggered.connect(self.open_settings)
         export_action.triggered.connect(self.export_current_wav)
         help_action.triggered.connect(self.show_about)
@@ -245,18 +257,65 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("MIDI読み込みに失敗しました")
             return
 
-        self.current_midi_path = midi_info.path
-        self.current_midi_length = midi_info.estimated_seconds
-        self.playback_engine.load(midi_info.path, midi_info.estimated_seconds)
+        self._load_midi_info(midi_info)
         self.settings.last_open_dir = str(midi_info.path.parent)
         self.settings_store.save(self.settings)
-        self._show_midi_info(midi_info)
-        self.play_button.setEnabled(True)
-        self.pause_button.setEnabled(True)
-        self.stop_button.setEnabled(True)
-        self.rewind_button.setEnabled(True)
-        self.export_button.setEnabled(True)
         self.statusBar().showMessage(f"読み込みました: {midi_info.path.name}")
+
+    def open_project(self) -> None:
+        start_dir = self.settings.last_open_dir or str(Path.home())
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "プロジェクトを開く",
+            start_dir,
+            "MIDI Mixer Project (*.mmix.json);;JSON Files (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            midi_path, mixer_state = load_project(Path(path))
+            if not midi_path.exists():
+                raise ProjectFileError(f"プロジェクト内のMIDIファイルが見つかりません:\n{midi_path}")
+            midi_info = load_midi_info(midi_path)
+        except (ProjectFileError, MidiLoadError) as exc:
+            QMessageBox.warning(self, "プロジェクト読み込みエラー", str(exc))
+            self.statusBar().showMessage("プロジェクト読み込みに失敗しました")
+            return
+
+        self.mixer_state = mixer_state
+        self._load_midi_info(midi_info)
+        self._apply_mixer_state_to_ui()
+        self.settings.last_open_dir = str(Path(path).parent)
+        self.settings_store.save(self.settings)
+        self.statusBar().showMessage(f"プロジェクトを読み込みました: {Path(path).name}")
+
+    def save_project(self) -> None:
+        if self.current_midi_path is None:
+            QMessageBox.information(self, "プロジェクト保存", "先にMIDIファイルを開いてください。")
+            return
+
+        default_name = self.current_midi_path.with_suffix(".mmix.json").name
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "プロジェクトを保存",
+            str(Path(self.settings.last_open_dir or self.current_midi_path.parent) / default_name),
+            "MIDI Mixer Project (*.mmix.json);;JSON Files (*.json);;All Files (*)",
+        )
+        if not output_path:
+            return
+        if not output_path.lower().endswith(".json"):
+            output_path += ".mmix.json"
+
+        try:
+            save_project(Path(output_path), self.current_midi_path, self.mixer_state)
+        except OSError as exc:
+            QMessageBox.warning(self, "プロジェクト保存エラー", f"保存できませんでした:\n{exc}")
+            self.statusBar().showMessage("プロジェクト保存に失敗しました")
+            return
+
+        self.settings.last_open_dir = str(Path(output_path).parent)
+        self.settings_store.save(self.settings)
+        self.statusBar().showMessage(f"プロジェクトを保存しました: {output_path}")
 
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
@@ -366,8 +425,36 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "MIDI Mixer Player",
-            "MIDI Mixer Player\n\nPhase 3-4: ミキサー状態とFluidSynth再生を実装中です。",
+            "MIDI Mixer Player\n\nMIDI再生、ミキサー、WAV書き出し、プロジェクト保存に対応しています。",
         )
+
+    def _load_midi_info(self, midi_info) -> None:
+        self.current_midi_path = midi_info.path
+        self.current_midi_length = midi_info.estimated_seconds
+        self.playback_engine.load(midi_info.path, midi_info.estimated_seconds)
+        self._show_midi_info(midi_info)
+        self.play_button.setEnabled(True)
+        self.pause_button.setEnabled(True)
+        self.stop_button.setEnabled(True)
+        self.rewind_button.setEnabled(True)
+        self.save_project_button.setEnabled(True)
+        self.export_button.setEnabled(True)
+
+    def _apply_mixer_state_to_ui(self) -> None:
+        self.tempo_slider.blockSignals(True)
+        self.key_slider.blockSignals(True)
+        self.tempo_slider.setValue(self.mixer_state.tempo_percent)
+        self.key_slider.setValue(self.mixer_state.key_semitones)
+        self.tempo_value_label.setText(f"{self.mixer_state.tempo_percent}%")
+        self.key_value_label.setText(str(self.mixer_state.key_semitones))
+        self.tempo_slider.blockSignals(False)
+        self.key_slider.blockSignals(False)
+
+        for strip, channel in zip(self.mixer_strips, self.mixer_state.channels, strict=True):
+            strip.set_state(channel.mute, channel.solo, channel.volume)
+
+        for index in range(16):
+            self.playback_engine.apply_channel_state(index, self.mixer_state)
 
     def _show_midi_info(self, midi_info) -> None:
         length_text = self._format_seconds(midi_info.estimated_seconds)

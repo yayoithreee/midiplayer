@@ -87,3 +87,14 @@ class MixerStrip(QFrame):
         self.mute_checkbox.setChecked(False)
         self.solo_checkbox.setChecked(False)
         self.volume_slider.setValue(100)
+
+    def set_state(self, mute: bool, solo: bool, volume: int) -> None:
+        self.mute_checkbox.blockSignals(True)
+        self.solo_checkbox.blockSignals(True)
+        self.volume_slider.blockSignals(True)
+        self.mute_checkbox.setChecked(mute)
+        self.solo_checkbox.setChecked(solo)
+        self.volume_slider.setValue(volume)
+        self.mute_checkbox.blockSignals(False)
+        self.solo_checkbox.blockSignals(False)
+        self.volume_slider.blockSignals(False)
