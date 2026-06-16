@@ -20,6 +20,7 @@ def save_project(path: Path, midi_path: Path, mixer_state: MixerState) -> None:
         "midi_file": str(midi_path),
         "tempo_percent": mixer_state.tempo_percent,
         "key_semitones": mixer_state.key_semitones,
+        "master_volume": mixer_state.master_volume,
         "channels": [
             {
                 "index": channel.index,
@@ -51,6 +52,7 @@ def load_project(path: Path) -> tuple[Path, MixerState]:
     state = MixerState()
     state.tempo_percent = _int_in_range(data.get("tempo_percent"), 50, 200, 100)
     state.key_semitones = _int_in_range(data.get("key_semitones"), -12, 12, 0)
+    state.master_volume = _int_in_range(data.get("master_volume"), 0, 127, 100)
 
     channels = data.get("channels", [])
     if not isinstance(channels, list):

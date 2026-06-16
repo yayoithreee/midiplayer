@@ -12,6 +12,7 @@ def test_project_file_round_trip(tmp_path):
     state = MixerState()
     state.tempo_percent = 125
     state.key_semitones = -3
+    state.master_volume = 90
     state.channels[0].mute = True
     state.channels[1].solo = True
     state.channels[2].volume = 72
@@ -22,6 +23,7 @@ def test_project_file_round_trip(tmp_path):
     assert loaded_midi_path == midi_path
     assert loaded_state.tempo_percent == 125
     assert loaded_state.key_semitones == -3
+    assert loaded_state.master_volume == 90
     assert loaded_state.channels[0].mute is True
     assert loaded_state.channels[1].solo is True
     assert loaded_state.channels[2].volume == 72
@@ -44,6 +46,7 @@ def test_project_file_clamps_loaded_values(tmp_path):
           "midi_file": "song.mid",
           "tempo_percent": 500,
           "key_semitones": -99,
+          "master_volume": 999,
           "channels": [
             {"index": 0, "volume": 999, "pan": -10}
           ]
@@ -57,5 +60,6 @@ def test_project_file_clamps_loaded_values(tmp_path):
     assert midi_path == Path("song.mid")
     assert state.tempo_percent == 200
     assert state.key_semitones == -12
+    assert state.master_volume == 127
     assert state.channels[0].volume == 127
     assert state.channels[0].pan == 0

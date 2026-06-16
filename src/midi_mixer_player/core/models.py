@@ -45,6 +45,7 @@ class MixerState:
     )
     tempo_percent: int = 100
     key_semitones: int = 0
+    master_volume: int = 100
 
     def has_solo(self) -> bool:
         return any(channel.solo for channel in self.channels)
@@ -60,8 +61,13 @@ class MixerState:
     def reset(self) -> None:
         self.tempo_percent = 100
         self.key_semitones = 0
+        self.master_volume = 100
         for channel in self.channels:
             channel.mute = False
             channel.solo = False
             channel.volume = 100
             channel.pan = 64
+
+    def effective_channel_volume(self, channel_index: int) -> int:
+        channel = self.channels[channel_index]
+        return max(0, min(127, round(channel.volume * self.master_volume / 127)))

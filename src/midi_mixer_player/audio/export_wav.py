@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+from shutil import which
 from pathlib import Path
 
 import mido
@@ -13,6 +14,19 @@ from midi_mixer_player.midi.transformer import transform_midi_for_export
 
 class ExportError(RuntimeError):
     pass
+
+
+def export_audio(
+    midi_path: Path,
+    soundfont_path: Path,
+    output_path: Path,
+    mixer_state: MixerState,
+) -> None:
+    suffix = output_path.suffix.lower()
+    if suffix == ".mp3":
+        export_mp3(midi_path, soundfont_path, output_path, mixer_state)
+        return
+    export_wav(midi_path, soundfont_path, output_path, mixer_state)
 
 
 def export_wav(
@@ -58,6 +72,47 @@ def export_wav(
     if completed.returncode != 0:
         details = (completed.stderr or completed.stdout).strip()
         raise ExportError(f"WAV書き出しに失敗しました。\n{details}")
+
+
+def export_mp3(
+    midi_path: Path,
+    soundfont_path: Path,
+    output_path: Path,
+    mixer_state: MixerState,
+) -> None:
+    ffmpeg_path = which("ffmpeg")
+    if ffmpeg_path is None:
+        raise ExportError("MP3書き出しには ffmpeg が必要です。ffmpeg をインストールして PATH に追加してください。")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="midi_mixer_player_mp3_") as tmp_dir:
+        temp_wav = Path(tmp_dir) / "render.wav"
+        export_wav(midi_path, soundfont_path, temp_wav, mixer_state)
+        command = [
+            ffmpeg_path,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(temp_wav),
+            "-codec:a",
+            "libmp3lame",
+            "-b:a",
+            "192k",
+            str(output_path),
+        ]
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    if completed.returncode != 0:
+        details = (completed.stderr or completed.stdout).strip()
+        raise ExportError(f"MP3書き出しに失敗しました。\n{details}")
 
 
 def _find_fluidsynth_exe() -> Path | None:

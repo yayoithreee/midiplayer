@@ -79,9 +79,12 @@ class MixerStrip(QFrame):
         else:
             self.used_label.setText("未使用")
             self.setProperty("used", False)
-        self.level_meter.setValue(min(info.note_count, 127))
+        self.level_meter.setValue(0)
         self.style().unpolish(self)
         self.style().polish(self)
+
+    def update_level(self, value: int) -> None:
+        self.level_meter.setValue(max(0, min(127, value)))
 
     def reset_state(self) -> None:
         self.mute_checkbox.setChecked(False)

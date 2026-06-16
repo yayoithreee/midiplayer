@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QGridLayout,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from midi_mixer_player.audio.export_wav import ExportError, export_wav
+from midi_mixer_player.audio.export_wav import ExportError, export_audio
 from midi_mixer_player.audio.playback_engine import PlaybackEngine, PlaybackError
 from midi_mixer_player.core.models import MixerState
 from midi_mixer_player.core.project_file import ProjectFileError, load_project, save_project
@@ -34,6 +35,7 @@ from midi_mixer_player.ui.settings_dialog import SettingsDialog
 class PlaybackSignals(QObject):
     status_changed = Signal(str)
     position_changed = Signal(float)
+    level_changed = Signal(int, int)
 
 
 class ExportWorker(QObject):
@@ -55,7 +57,7 @@ class ExportWorker(QObject):
 
     def run(self) -> None:
         try:
-            export_wav(self.midi_path, self.soundfont_path, self.output_path, self.mixer_state)
+            export_audio(self.midi_path, self.soundfont_path, self.output_path, self.mixer_state)
         except ExportError as exc:
             self.failed.emit(str(exc))
         except Exception as exc:
@@ -78,14 +80,22 @@ class MainWindow(QMainWindow):
         self.playback_engine = PlaybackEngine(
             status_callback=self.playback_signals.status_changed.emit,
             position_callback=self.playback_signals.position_changed.emit,
+            level_callback=self.playback_signals.level_changed.emit,
         )
         self.mixer_strips = [MixerStrip(i) for i in range(16)]
+        self.channel_levels = [0 for _ in range(16)]
+        self.master_level = 0
+        self.level_decay_timer = QTimer(self)
+        self.level_decay_timer.setInterval(60)
+        self.level_decay_timer.timeout.connect(self._decay_levels)
 
         self.setWindowTitle("MIDI Mixer Player")
         self.resize(self.settings.window_width, self.settings.window_height)
         self._build_ui()
         self.playback_signals.status_changed.connect(self._on_playback_status)
         self.playback_signals.position_changed.connect(self._on_playback_position)
+        self.playback_signals.level_changed.connect(self._on_channel_level)
+        self.level_decay_timer.start()
         self._update_soundfont_status()
 
     def closeEvent(self, event) -> None:
@@ -113,6 +123,7 @@ class MainWindow(QMainWindow):
         self.rewind_button = QPushButton("Rewind")
         self.reset_button = QPushButton("Reset")
         self.export_button = QPushButton("Export WAV")
+        self.export_mp3_button = QPushButton("Export MP3")
 
         for button in [
             self.play_button,
@@ -121,6 +132,7 @@ class MainWindow(QMainWindow):
             self.rewind_button,
             self.save_project_button,
             self.export_button,
+            self.export_mp3_button,
         ]:
             button.setEnabled(False)
 
@@ -132,7 +144,8 @@ class MainWindow(QMainWindow):
         self.stop_button.clicked.connect(self.stop_midi)
         self.rewind_button.clicked.connect(self.rewind_midi)
         self.reset_button.clicked.connect(self.reset_controls)
-        self.export_button.clicked.connect(self.export_current_wav)
+        self.export_button.clicked.connect(lambda: self.export_current_audio("wav"))
+        self.export_mp3_button.clicked.connect(lambda: self.export_current_audio("mp3"))
 
         transport_layout.addWidget(self.open_button)
         transport_layout.addWidget(self.open_project_button)
@@ -143,6 +156,7 @@ class MainWindow(QMainWindow):
         transport_layout.addWidget(self.rewind_button)
         transport_layout.addWidget(self.reset_button)
         transport_layout.addWidget(self.export_button)
+        transport_layout.addWidget(self.export_mp3_button)
         transport_layout.addStretch(1)
 
         self.song_label = QLabel("MIDI: 未選択")
@@ -153,6 +167,28 @@ class MainWindow(QMainWindow):
         self.seek_slider.sliderReleased.connect(self.seek_midi)
         self.soundfont_warning_label = QLabel("")
         self.soundfont_warning_label.setStyleSheet("color: #9a4b00; font-weight: 600;")
+
+        master_group = QGroupBox("Master")
+        master_layout = QGridLayout(master_group)
+        self.master_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.master_volume_slider.setRange(0, 127)
+        self.master_volume_slider.setValue(self.mixer_state.master_volume)
+        self.master_volume_label = QLabel(str(self.mixer_state.master_volume))
+        self.master_volume_slider.valueChanged.connect(self.set_master_volume)
+        self.master_left_meter = QProgressBar()
+        self.master_right_meter = QProgressBar()
+        for meter in (self.master_left_meter, self.master_right_meter):
+            meter.setRange(0, 127)
+            meter.setValue(0)
+            meter.setTextVisible(False)
+            meter.setFixedHeight(10)
+        master_layout.addWidget(QLabel("Volume"), 0, 0)
+        master_layout.addWidget(self.master_volume_slider, 0, 1)
+        master_layout.addWidget(self.master_volume_label, 0, 2)
+        master_layout.addWidget(QLabel("L"), 1, 0)
+        master_layout.addWidget(self.master_left_meter, 1, 1, 1, 2)
+        master_layout.addWidget(QLabel("R"), 2, 0)
+        master_layout.addWidget(self.master_right_meter, 2, 1, 1, 2)
 
         control_grid = QGridLayout()
         self.tempo_slider = QSlider(Qt.Orientation.Horizontal)
@@ -212,6 +248,7 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.position_label)
         root_layout.addWidget(self.seek_slider)
         root_layout.addWidget(self.soundfont_warning_label)
+        root_layout.addWidget(master_group)
         root_layout.addLayout(control_grid)
         root_layout.addWidget(info_group)
         root_layout.addWidget(mixer_scroll, 1)
@@ -230,13 +267,15 @@ class MainWindow(QMainWindow):
         save_project_action = toolbar.addAction("Save Project")
         settings_action = toolbar.addAction("Settings")
         export_action = toolbar.addAction("Export")
+        export_mp3_action = toolbar.addAction("Export MP3")
         help_action = toolbar.addAction("Help")
 
         open_action.triggered.connect(self.open_midi)
         open_project_action.triggered.connect(self.open_project)
         save_project_action.triggered.connect(self.save_project)
         settings_action.triggered.connect(self.open_settings)
-        export_action.triggered.connect(self.export_current_wav)
+        export_action.triggered.connect(lambda: self.export_current_audio("wav"))
+        export_mp3_action.triggered.connect(lambda: self.export_current_audio("mp3"))
         help_action.triggered.connect(self.show_about)
 
     def open_midi(self) -> None:
@@ -330,6 +369,7 @@ class MainWindow(QMainWindow):
         self.mixer_state.reset()
         self.tempo_slider.setValue(100)
         self.key_slider.setValue(0)
+        self.master_volume_slider.setValue(100)
         for strip in self.mixer_strips:
             strip.reset_state()
         for index in range(16):
@@ -356,32 +396,36 @@ class MainWindow(QMainWindow):
     def seek_midi(self) -> None:
         self.playback_engine.seek(float(self.seek_slider.value()), self.mixer_state)
 
-    def export_current_wav(self) -> None:
+    def export_current_audio(self, file_type: str) -> None:
         if self.current_midi_path is None:
-            QMessageBox.information(self, "WAV書き出し", "先にMIDIファイルを開いてください。")
+            QMessageBox.information(self, "書き出し", "先にMIDIファイルを開いてください。")
             return
         if not self.settings.soundfont_path:
             QMessageBox.warning(
                 self,
-                "WAV書き出し",
+                "書き出し",
                 "SoundFont が未設定です。Settings から .sf2 / .sf3 を選択してください。",
             )
             return
 
-        default_name = self.current_midi_path.with_suffix(".wav").name
+        suffix = ".mp3" if file_type == "mp3" else ".wav"
+        default_name = self.current_midi_path.with_suffix(suffix).name
+        title = "MP3を書き出す" if file_type == "mp3" else "WAVを書き出す"
+        file_filter = "MP3 Files (*.mp3);;All Files (*)" if file_type == "mp3" else "WAV Files (*.wav);;All Files (*)"
         output_path, _ = QFileDialog.getSaveFileName(
             self,
-            "WAVを書き出す",
+            title,
             str(Path(self.settings.last_open_dir or self.current_midi_path.parent) / default_name),
-            "WAV Files (*.wav);;All Files (*)",
+            file_filter,
         )
         if not output_path:
             return
-        if not output_path.lower().endswith(".wav"):
-            output_path += ".wav"
+        if not output_path.lower().endswith(suffix):
+            output_path += suffix
 
         self.export_button.setEnabled(False)
-        self.statusBar().showMessage("WAVを書き出しています...")
+        self.export_mp3_button.setEnabled(False)
+        self.statusBar().showMessage(f"{suffix.upper()[1:]}を書き出しています...")
         self.export_thread = QThread(self)
         self.export_worker = ExportWorker(
             self.current_midi_path,
@@ -411,6 +455,12 @@ class MainWindow(QMainWindow):
         self.mixer_state.channels[channel_index].volume = value
         self.playback_engine.apply_channel_state(channel_index, self.mixer_state)
 
+    def set_master_volume(self, value: int) -> None:
+        self.mixer_state.master_volume = value
+        self.master_volume_label.setText(str(value))
+        for index in range(16):
+            self.playback_engine.apply_channel_state(index, self.mixer_state)
+
     def set_tempo(self, value: int) -> None:
         self.mixer_state.tempo_percent = value
         self.tempo_value_label.setText(f"{value}%")
@@ -439,16 +489,21 @@ class MainWindow(QMainWindow):
         self.rewind_button.setEnabled(True)
         self.save_project_button.setEnabled(True)
         self.export_button.setEnabled(True)
+        self.export_mp3_button.setEnabled(True)
 
     def _apply_mixer_state_to_ui(self) -> None:
         self.tempo_slider.blockSignals(True)
         self.key_slider.blockSignals(True)
+        self.master_volume_slider.blockSignals(True)
         self.tempo_slider.setValue(self.mixer_state.tempo_percent)
         self.key_slider.setValue(self.mixer_state.key_semitones)
+        self.master_volume_slider.setValue(self.mixer_state.master_volume)
         self.tempo_value_label.setText(f"{self.mixer_state.tempo_percent}%")
         self.key_value_label.setText(str(self.mixer_state.key_semitones))
+        self.master_volume_label.setText(str(self.mixer_state.master_volume))
         self.tempo_slider.blockSignals(False)
         self.key_slider.blockSignals(False)
+        self.master_volume_slider.blockSignals(False)
 
         for strip, channel in zip(self.mixer_strips, self.mixer_state.channels, strict=True):
             strip.set_state(channel.mute, channel.solo, channel.volume)
@@ -494,16 +549,36 @@ class MainWindow(QMainWindow):
             f"{self._format_seconds(seconds)} / {self._format_seconds(self.current_midi_length)}"
         )
 
+    def _on_channel_level(self, channel_index: int, value: int) -> None:
+        if not 0 <= channel_index < len(self.channel_levels):
+            return
+        self.channel_levels[channel_index] = max(self.channel_levels[channel_index], value)
+        self.mixer_strips[channel_index].update_level(self.channel_levels[channel_index])
+        self.master_level = max(self.master_level, value)
+        self.master_left_meter.setValue(self.master_level)
+        self.master_right_meter.setValue(self.master_level)
+
+    def _decay_levels(self) -> None:
+        self.master_level = max(0, self.master_level - 8)
+        self.master_left_meter.setValue(self.master_level)
+        self.master_right_meter.setValue(self.master_level)
+        for index, level in enumerate(self.channel_levels):
+            next_level = max(0, level - 8)
+            if next_level != level:
+                self.channel_levels[index] = next_level
+                self.mixer_strips[index].update_level(next_level)
+
     def _on_export_finished(self, output_path: str) -> None:
-        self.statusBar().showMessage(f"WAVを書き出しました: {output_path}")
-        QMessageBox.information(self, "WAV書き出し", f"保存しました:\n{output_path}")
+        self.statusBar().showMessage(f"書き出しました: {output_path}")
+        QMessageBox.information(self, "書き出し", f"保存しました:\n{output_path}")
 
     def _on_export_failed(self, message: str) -> None:
-        self.statusBar().showMessage("WAV書き出しに失敗しました")
-        QMessageBox.warning(self, "WAV書き出しエラー", message)
+        self.statusBar().showMessage("書き出しに失敗しました")
+        QMessageBox.warning(self, "書き出しエラー", message)
 
     def _cleanup_export_thread(self) -> None:
         self.export_button.setEnabled(self.current_midi_path is not None)
+        self.export_mp3_button.setEnabled(self.current_midi_path is not None)
         if self.export_worker is not None:
             self.export_worker.deleteLater()
         if self.export_thread is not None:

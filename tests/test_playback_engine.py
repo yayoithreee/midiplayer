@@ -43,6 +43,7 @@ def test_mixer_state_reset_restores_tempo_and_key():
     state = MixerState()
     state.tempo_percent = 150
     state.key_semitones = -5
+    state.master_volume = 64
     state.channels[0].mute = True
     state.channels[0].solo = True
     state.channels[0].volume = 64
@@ -51,6 +52,15 @@ def test_mixer_state_reset_restores_tempo_and_key():
 
     assert state.tempo_percent == 100
     assert state.key_semitones == 0
+    assert state.master_volume == 100
     assert state.channels[0].mute is False
     assert state.channels[0].solo is False
     assert state.channels[0].volume == 100
+
+
+def test_mixer_state_effective_channel_volume_applies_master():
+    state = MixerState()
+    state.master_volume = 64
+    state.channels[0].volume = 100
+
+    assert state.effective_channel_volume(0) == 50

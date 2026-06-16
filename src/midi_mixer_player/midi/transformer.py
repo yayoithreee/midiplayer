@@ -69,7 +69,7 @@ def _transform_message(message: mido.Message | mido.MetaMessage, mixer_state: Mi
         )
 
     if message.type == "control_change" and message.control == 7:
-        volume = mixer_state.channels[channel_index].volume
+        volume = mixer_state.effective_channel_volume(channel_index)
         return message.copy(value=max(0, min(127, round(message.value * volume / 127))))
 
     if message.type == "program_change" and channel_index == DRUM_CHANNEL_INDEX:
@@ -89,7 +89,7 @@ def _insert_initial_volumes(mid: mido.MidiFile, mixer_state: MixerState) -> None
                 "control_change",
                 channel=channel.index,
                 control=7,
-                value=channel.volume,
+                value=mixer_state.effective_channel_volume(channel.index),
                 time=0,
             )
         )

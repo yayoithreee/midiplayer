@@ -29,9 +29,11 @@ class PlaybackEngine:
         self,
         status_callback: Callable[[str], None] | None = None,
         position_callback: Callable[[float], None] | None = None,
+        level_callback: Callable[[int, int], None] | None = None,
     ) -> None:
         self.status_callback = status_callback
         self.position_callback = position_callback
+        self.level_callback = level_callback
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
@@ -128,7 +130,7 @@ class PlaybackEngine:
             return
         channel = mixer_state.channels[channel_index]
         with self._lock:
-            self._synth.cc(channel_index, 7, channel.volume)
+            self._synth.cc(channel_index, 7, mixer_state.effective_channel_volume(channel_index))
             if channel.mute or (mixer_state.has_solo() and not channel.solo):
                 self._synth.cc(channel_index, 123, 0)
 
@@ -222,7 +224,7 @@ class PlaybackEngine:
             return
         with self._lock:
             for channel in mixer_state.channels:
-                self._synth.cc(channel.index, 7, channel.volume)
+                self._synth.cc(channel.index, 7, mixer_state.effective_channel_volume(channel.index))
                 self._synth.cc(channel.index, 10, channel.pan)
 
     def _send_message(self, message: mido.Message, mixer_state: MixerState) -> None:
@@ -240,6 +242,10 @@ class PlaybackEngine:
                 note = transpose_note(message.note, channel_index, mixer_state.key_semitones)
                 if velocity > 0:
                     self._synth.noteon(channel_index, note, velocity)
+                    self._notify_level(
+                        channel_index,
+                        round(velocity * mixer_state.effective_channel_volume(channel_index) / 127),
+                    )
                 else:
                     self._synth.noteoff(channel_index, note)
             elif message.type == "note_off":
@@ -274,6 +280,10 @@ class PlaybackEngine:
     def _notify_position(self, seconds: float) -> None:
         if self.position_callback:
             self.position_callback(seconds)
+
+    def _notify_level(self, channel_index: int, value: int) -> None:
+        if self.level_callback:
+            self.level_callback(channel_index, max(0, min(127, value)))
 
     def _song_position(self, mixer_state: MixerState | None) -> float:
         tempo_percent = mixer_state.tempo_percent if mixer_state else 100

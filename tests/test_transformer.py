@@ -32,6 +32,7 @@ def test_transform_midi_for_export_applies_key_tempo_and_volume():
     state.tempo_percent = 200
     state.key_semitones = 2
     state.channels[0].volume = 64
+    state.master_volume = 127
 
     transformed = transform_midi_for_export(mid, state)
     messages = [message for track in transformed.tracks for message in track]
