@@ -40,8 +40,9 @@ python src\midi_mixer_player\main.py
 - FluidSynth で 44.1kHz / 16bit / stereo WAV を生成
 - ffmpeg が利用できる環境で MP3 192kbps 書き出し
 - `.mmix.json` でプロジェクト保存/読み込み
-- Master Volume と L/R レベルメーター
-- 各チャンネルの簡易リアルタイムレベルメーター
+- 縦型の主音量フェーダーと L/R レベルメーター
+- 各チャンネルの縦型簡易リアルタイムレベルメーター
+- 各チャンネルの音量値表示
 
 ## SoundFont について
 

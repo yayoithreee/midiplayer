@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -28,6 +27,7 @@ from midi_mixer_player.core.models import MixerState
 from midi_mixer_player.core.project_file import ProjectFileError, load_project, save_project
 from midi_mixer_player.core.settings import AppSettings, SettingsStore
 from midi_mixer_player.midi.parser import MidiLoadError, load_midi_info
+from midi_mixer_player.ui.master_strip import MasterStrip
 from midi_mixer_player.ui.mixer_strip import MixerStrip
 from midi_mixer_player.ui.settings_dialog import SettingsDialog
 
@@ -83,6 +83,7 @@ class MainWindow(QMainWindow):
             level_callback=self.playback_signals.level_changed.emit,
         )
         self.mixer_strips = [MixerStrip(i) for i in range(16)]
+        self.master_strip = MasterStrip()
         self.channel_levels = [0 for _ in range(16)]
         self.master_level = 0
         self.level_decay_timer = QTimer(self)
@@ -114,16 +115,16 @@ class MainWindow(QMainWindow):
         root_layout.setSpacing(10)
 
         transport_layout = QHBoxLayout()
-        self.open_button = QPushButton("Open MIDI")
-        self.open_project_button = QPushButton("Open Project")
-        self.save_project_button = QPushButton("Save Project")
-        self.play_button = QPushButton("Play")
-        self.pause_button = QPushButton("Pause")
-        self.stop_button = QPushButton("Stop")
-        self.rewind_button = QPushButton("Rewind")
-        self.reset_button = QPushButton("Reset")
-        self.export_button = QPushButton("Export WAV")
-        self.export_mp3_button = QPushButton("Export MP3")
+        self.open_button = QPushButton("MIDIを開く")
+        self.open_project_button = QPushButton("プロジェクトを開く")
+        self.save_project_button = QPushButton("保存")
+        self.play_button = QPushButton("再生")
+        self.pause_button = QPushButton("一時停止")
+        self.stop_button = QPushButton("停止")
+        self.rewind_button = QPushButton("先頭へ")
+        self.reset_button = QPushButton("リセット")
+        self.export_button = QPushButton("WAV書き出し")
+        self.export_mp3_button = QPushButton("MP3書き出し")
 
         for button in [
             self.play_button,
@@ -168,28 +169,6 @@ class MainWindow(QMainWindow):
         self.soundfont_warning_label = QLabel("")
         self.soundfont_warning_label.setStyleSheet("color: #9a4b00; font-weight: 600;")
 
-        master_group = QGroupBox("Master")
-        master_layout = QGridLayout(master_group)
-        self.master_volume_slider = QSlider(Qt.Orientation.Horizontal)
-        self.master_volume_slider.setRange(0, 127)
-        self.master_volume_slider.setValue(self.mixer_state.master_volume)
-        self.master_volume_label = QLabel(str(self.mixer_state.master_volume))
-        self.master_volume_slider.valueChanged.connect(self.set_master_volume)
-        self.master_left_meter = QProgressBar()
-        self.master_right_meter = QProgressBar()
-        for meter in (self.master_left_meter, self.master_right_meter):
-            meter.setRange(0, 127)
-            meter.setValue(0)
-            meter.setTextVisible(False)
-            meter.setFixedHeight(10)
-        master_layout.addWidget(QLabel("Volume"), 0, 0)
-        master_layout.addWidget(self.master_volume_slider, 0, 1)
-        master_layout.addWidget(self.master_volume_label, 0, 2)
-        master_layout.addWidget(QLabel("L"), 1, 0)
-        master_layout.addWidget(self.master_left_meter, 1, 1, 1, 2)
-        master_layout.addWidget(QLabel("R"), 2, 0)
-        master_layout.addWidget(self.master_right_meter, 2, 1, 1, 2)
-
         control_grid = QGridLayout()
         self.tempo_slider = QSlider(Qt.Orientation.Horizontal)
         self.tempo_slider.setRange(50, 200)
@@ -203,10 +182,10 @@ class MainWindow(QMainWindow):
         self.key_value_label = QLabel("0")
         self.key_slider.valueChanged.connect(self.set_key)
 
-        control_grid.addWidget(QLabel("Tempo"), 0, 0)
+        control_grid.addWidget(QLabel("テンポ"), 0, 0)
         control_grid.addWidget(self.tempo_slider, 0, 1)
         control_grid.addWidget(self.tempo_value_label, 0, 2)
-        control_grid.addWidget(QLabel("Key"), 1, 0)
+        control_grid.addWidget(QLabel("キー"), 1, 0)
         control_grid.addWidget(self.key_slider, 1, 1)
         control_grid.addWidget(self.key_value_label, 1, 2)
 
@@ -219,9 +198,9 @@ class MainWindow(QMainWindow):
         self.info_length = QLabel("-")
         info_layout.addWidget(QLabel("ファイル名"), 0, 0)
         info_layout.addWidget(self.info_file, 0, 1)
-        info_layout.addWidget(QLabel("Format"), 1, 0)
+        info_layout.addWidget(QLabel("形式"), 1, 0)
         info_layout.addWidget(self.info_format, 1, 1)
-        info_layout.addWidget(QLabel("Tracks"), 2, 0)
+        info_layout.addWidget(QLabel("トラック数"), 2, 0)
         info_layout.addWidget(self.info_tracks, 2, 1)
         info_layout.addWidget(QLabel("Ticks/beat"), 3, 0)
         info_layout.addWidget(self.info_ticks, 3, 1)
@@ -232,6 +211,9 @@ class MainWindow(QMainWindow):
         mixer_layout = QHBoxLayout(mixer_container)
         mixer_layout.setContentsMargins(0, 0, 0, 0)
         mixer_layout.setSpacing(6)
+        self.master_strip.volume_changed.connect(self.set_master_volume)
+        self.master_strip.set_volume(self.mixer_state.master_volume)
+        mixer_layout.addWidget(self.master_strip)
         for strip in self.mixer_strips:
             strip.mute_changed.connect(self.set_channel_mute)
             strip.solo_changed.connect(self.set_channel_solo)
@@ -248,7 +230,6 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.position_label)
         root_layout.addWidget(self.seek_slider)
         root_layout.addWidget(self.soundfont_warning_label)
-        root_layout.addWidget(master_group)
         root_layout.addLayout(control_grid)
         root_layout.addWidget(info_group)
         root_layout.addWidget(mixer_scroll, 1)
@@ -262,13 +243,13 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        open_action = toolbar.addAction("Open")
-        open_project_action = toolbar.addAction("Open Project")
-        save_project_action = toolbar.addAction("Save Project")
-        settings_action = toolbar.addAction("Settings")
-        export_action = toolbar.addAction("Export")
-        export_mp3_action = toolbar.addAction("Export MP3")
-        help_action = toolbar.addAction("Help")
+        open_action = toolbar.addAction("MIDIを開く")
+        open_project_action = toolbar.addAction("プロジェクトを開く")
+        save_project_action = toolbar.addAction("保存")
+        settings_action = toolbar.addAction("設定")
+        export_action = toolbar.addAction("WAV書き出し")
+        export_mp3_action = toolbar.addAction("MP3書き出し")
+        help_action = toolbar.addAction("ヘルプ")
 
         open_action.triggered.connect(self.open_midi)
         open_project_action.triggered.connect(self.open_project)
@@ -284,7 +265,7 @@ class MainWindow(QMainWindow):
             self,
             "MIDIファイルを開く",
             start_dir,
-            "MIDI Files (*.mid *.midi);;All Files (*)",
+            "MIDIファイル (*.mid *.midi);;すべてのファイル (*)",
         )
         if not path:
             return
@@ -307,7 +288,7 @@ class MainWindow(QMainWindow):
             self,
             "プロジェクトを開く",
             start_dir,
-            "MIDI Mixer Project (*.mmix.json);;JSON Files (*.json);;All Files (*)",
+            "プロジェクト (*.mmix.json);;JSONファイル (*.json);;すべてのファイル (*)",
         )
         if not path:
             return
@@ -338,7 +319,7 @@ class MainWindow(QMainWindow):
             self,
             "プロジェクトを保存",
             str(Path(self.settings.last_open_dir or self.current_midi_path.parent) / default_name),
-            "MIDI Mixer Project (*.mmix.json);;JSON Files (*.json);;All Files (*)",
+            "プロジェクト (*.mmix.json);;JSONファイル (*.json);;すべてのファイル (*)",
         )
         if not output_path:
             return
@@ -369,7 +350,7 @@ class MainWindow(QMainWindow):
         self.mixer_state.reset()
         self.tempo_slider.setValue(100)
         self.key_slider.setValue(0)
-        self.master_volume_slider.setValue(100)
+        self.master_strip.set_volume(100)
         for strip in self.mixer_strips:
             strip.reset_state()
         for index in range(16):
@@ -404,14 +385,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "書き出し",
-                "SoundFont が未設定です。Settings から .sf2 / .sf3 を選択してください。",
+                "音源ファイルが未設定です。設定から .sf2 / .sf3 を選択してください。",
             )
             return
 
         suffix = ".mp3" if file_type == "mp3" else ".wav"
         default_name = self.current_midi_path.with_suffix(suffix).name
         title = "MP3を書き出す" if file_type == "mp3" else "WAVを書き出す"
-        file_filter = "MP3 Files (*.mp3);;All Files (*)" if file_type == "mp3" else "WAV Files (*.wav);;All Files (*)"
+        file_filter = "MP3ファイル (*.mp3);;すべてのファイル (*)" if file_type == "mp3" else "WAVファイル (*.wav);;すべてのファイル (*)"
         output_path, _ = QFileDialog.getSaveFileName(
             self,
             title,
@@ -457,7 +438,7 @@ class MainWindow(QMainWindow):
 
     def set_master_volume(self, value: int) -> None:
         self.mixer_state.master_volume = value
-        self.master_volume_label.setText(str(value))
+        self.master_strip.set_volume(value)
         for index in range(16):
             self.playback_engine.apply_channel_state(index, self.mixer_state)
 
@@ -475,7 +456,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "MIDI Mixer Player",
-            "MIDI Mixer Player\n\nMIDI再生、ミキサー、WAV書き出し、プロジェクト保存に対応しています。",
+            "MIDI Mixer Player\n\nMIDI再生、ミキサー、WAV/MP3書き出し、プロジェクト保存に対応しています。",
         )
 
     def _load_midi_info(self, midi_info) -> None:
@@ -494,16 +475,13 @@ class MainWindow(QMainWindow):
     def _apply_mixer_state_to_ui(self) -> None:
         self.tempo_slider.blockSignals(True)
         self.key_slider.blockSignals(True)
-        self.master_volume_slider.blockSignals(True)
         self.tempo_slider.setValue(self.mixer_state.tempo_percent)
         self.key_slider.setValue(self.mixer_state.key_semitones)
-        self.master_volume_slider.setValue(self.mixer_state.master_volume)
+        self.master_strip.set_volume(self.mixer_state.master_volume)
         self.tempo_value_label.setText(f"{self.mixer_state.tempo_percent}%")
         self.key_value_label.setText(str(self.mixer_state.key_semitones))
-        self.master_volume_label.setText(str(self.mixer_state.master_volume))
         self.tempo_slider.blockSignals(False)
         self.key_slider.blockSignals(False)
-        self.master_volume_slider.blockSignals(False)
 
         for strip, channel in zip(self.mixer_strips, self.mixer_state.channels, strict=True):
             strip.set_state(channel.mute, channel.solo, channel.volume)
@@ -530,10 +508,10 @@ class MainWindow(QMainWindow):
     def _update_soundfont_status(self) -> None:
         if self.settings.soundfont_path:
             self.soundfont_warning_label.setText("")
-            self.statusBar().showMessage(f"SoundFont: {Path(self.settings.soundfont_path).name}")
+            self.statusBar().showMessage(f"音源ファイル: {Path(self.settings.soundfont_path).name}")
         else:
             self.soundfont_warning_label.setText(
-                "SoundFont が未設定です。Settings から .sf2 / .sf3 を選択してください。"
+                "音源ファイルが未設定です。設定から .sf2 / .sf3 を選択してください。"
             )
 
     def _show_phase_message(self, message: str) -> None:
@@ -555,13 +533,11 @@ class MainWindow(QMainWindow):
         self.channel_levels[channel_index] = max(self.channel_levels[channel_index], value)
         self.mixer_strips[channel_index].update_level(self.channel_levels[channel_index])
         self.master_level = max(self.master_level, value)
-        self.master_left_meter.setValue(self.master_level)
-        self.master_right_meter.setValue(self.master_level)
+        self.master_strip.update_level(self.master_level)
 
     def _decay_levels(self) -> None:
         self.master_level = max(0, self.master_level - 8)
-        self.master_left_meter.setValue(self.master_level)
-        self.master_right_meter.setValue(self.master_level)
+        self.master_strip.update_level(self.master_level)
         for index, level in enumerate(self.channel_levels):
             next_level = max(0, level - 8)
             if next_level != level:

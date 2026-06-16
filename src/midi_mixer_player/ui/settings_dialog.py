@@ -22,7 +22,7 @@ class SettingsDialog(QDialog):
         self.resize(640, 160)
 
         self.soundfont_edit = QLineEdit(settings.soundfont_path)
-        self.soundfont_edit.setPlaceholderText("SoundFont (.sf2 / .sf3) を選択")
+        self.soundfont_edit.setPlaceholderText("音源ファイル SoundFont (.sf2 / .sf3) を選択")
 
         browse_button = QPushButton("参照...")
         browse_button.clicked.connect(self._browse_soundfont)
@@ -42,7 +42,7 @@ class SettingsDialog(QDialog):
         button_layout.addWidget(cancel_button)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("SoundFont"))
+        layout.addWidget(QLabel("音源ファイル"))
         layout.addLayout(soundfont_layout)
         layout.addStretch(1)
         layout.addLayout(button_layout)
@@ -54,9 +54,9 @@ class SettingsDialog(QDialog):
         start_dir = str(Path(self.soundfont_edit.text()).parent) if self.soundfont_edit.text() else ""
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "SoundFontを選択",
+            "音源ファイルを選択",
             start_dir,
-            "SoundFont (*.sf2 *.sf3);;All Files (*)",
+            "音源ファイル (*.sf2 *.sf3);;すべてのファイル (*)",
         )
         if path:
             self.soundfont_edit.setText(path)
