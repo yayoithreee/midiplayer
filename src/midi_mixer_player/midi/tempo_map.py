@@ -62,3 +62,8 @@ def estimate_length_seconds(mid: mido.MidiFile) -> float:
             absolute_tick += message.time
         max_tick = max(max_tick, absolute_tick)
     return tick_to_seconds(max_tick, mid.ticks_per_beat, tempo_map)
+
+
+def first_bpm(mid: mido.MidiFile) -> float:
+    tempo_map = build_tempo_map(mid)
+    return float(mido.tempo2bpm(tempo_map[0].tempo))

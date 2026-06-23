@@ -1,6 +1,6 @@
 import mido
 
-from midi_mixer_player.midi.tempo_map import estimate_length_seconds
+from midi_mixer_player.midi.tempo_map import estimate_length_seconds, first_bpm
 
 
 def test_estimate_length_seconds_uses_tempo_changes():
@@ -15,3 +15,13 @@ def test_estimate_length_seconds_uses_tempo_changes():
     track.append(mido.Message("note_off", channel=0, note=64, velocity=0, time=480))
 
     assert estimate_length_seconds(mid) == 1.5
+
+
+def test_first_bpm_reads_initial_midi_tempo():
+    mid = mido.MidiFile(type=1, ticks_per_beat=480)
+    track = mido.MidiTrack()
+    mid.tracks.append(track)
+    track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(96), time=0))
+    track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(140), time=480))
+
+    assert round(first_bpm(mid)) == 96

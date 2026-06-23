@@ -25,6 +25,7 @@ class MidiInfo:
     track_count: int
     ticks_per_beat: int
     estimated_seconds: float
+    base_bpm: float
     title: str
     channels: list[ChannelInfo] = field(default_factory=list)
 

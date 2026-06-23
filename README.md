@@ -1,6 +1,6 @@
 # MIDI Mixer Player
 
-Windows 向けの 16 チャンネル MIDI ミキサープレーヤーです。MIDI ファイルの読み込み、基本情報表示、16 チャンネルのミキサー表示、SoundFont パスの設定保存、FluidSynth による再生、Tempo/Key 変更、WAV 書き出し、PyInstaller による exe ビルドまでを提供します。
+Windows 向けの 16 チャンネル MIDI ミキサープレーヤーです。MIDI ファイルの読み込み、16 チャンネルのミキサー表示、SoundFont パスの設定保存、FluidSynth による再生、テンポ/キー変更、WAV/MP3 書き出し、PyInstaller による exe ビルドまでを提供します。
 
 ## セットアップ
 
@@ -25,7 +25,6 @@ python src\midi_mixer_player\main.py
 ## できること
 
 - `.mid` / `.midi` ファイルを開く
-- format、tracks 数、ticks per beat、推定再生時間を表示
 - MIDI チャンネル 1-16 の使用状況を表示
 - `program_change` から GM 音色名を表示
 - チャンネル 10 を Drum として表示
@@ -33,13 +32,12 @@ python src\midi_mixer_player\main.py
 - FluidSynth と SoundFont を使って MIDI を再生
 - Mute / Solo / Volume を再生に反映
 - Play / Pause / Stop / Rewind / Seek の基本操作
-- Tempo 50-200% を再生に反映
-- Key -12〜+12 semitones を再生に反映
+- MIDI の基準テンポを BPM で表示し、50-200% 相当の範囲で再生に反映
+- キー -12〜+12 半音を再生に反映
 - チャンネル 10 のドラムは Key 変更の対象外
-- 現在の Mute / Solo / Volume / Tempo / Key を反映して WAV 書き出し
+- 現在の Mute / Solo / Volume / テンポ / キーを反映して WAV 書き出し
 - FluidSynth で 44.1kHz / 16bit / stereo WAV を生成
 - ffmpeg が利用できる環境で MP3 192kbps 書き出し
-- `.mmix.json` でプロジェクト保存/読み込み
 - 縦型の主音量フェーダーと L/R レベルメーター
 - 各チャンネルの縦型簡易リアルタイムレベルメーター
 - 各チャンネルの音量値表示
@@ -81,6 +79,7 @@ dist\MIDI Mixer Player\MIDI Mixer Player.exe
 - レベルメーターは実音量解析ではなく簡易表示です。
 - FluidSynth 本体または SoundFont が未設定の場合、再生とWAV/MP3書き出しはできません。
 - MP3書き出しには ffmpeg が必要です。
+- `.mmix.json` のプロジェクト保存/読み込み機能は内部実装済みですが、MIDIを開いて調整・書き出しする通常操作では不要なためメインUIからは外しています。
 
 ## 注意
 

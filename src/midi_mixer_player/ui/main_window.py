@@ -7,7 +7,6 @@ from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -73,6 +72,7 @@ class MainWindow(QMainWindow):
         self.settings = self.settings_store.load()
         self.current_midi_path: Path | None = None
         self.current_midi_length = 0.0
+        self.current_midi_base_bpm = 120.0
         self.mixer_state = MixerState()
         self.playback_signals = PlaybackSignals()
         self.export_thread: QThread | None = None
@@ -116,30 +116,32 @@ class MainWindow(QMainWindow):
 
         transport_layout = QHBoxLayout()
         self.open_button = QPushButton("MIDIを開く")
-        self.open_project_button = QPushButton("プロジェクトを開く")
-        self.save_project_button = QPushButton("保存")
-        self.play_button = QPushButton("再生")
-        self.pause_button = QPushButton("一時停止")
-        self.stop_button = QPushButton("停止")
-        self.rewind_button = QPushButton("先頭へ")
+        self.play_button = QPushButton("▶")
+        self.pause_button = QPushButton("⏸")
+        self.stop_button = QPushButton("■")
+        self.rewind_button = QPushButton("|◀")
         self.reset_button = QPushButton("リセット")
         self.export_button = QPushButton("WAV書き出し")
         self.export_mp3_button = QPushButton("MP3書き出し")
+
+        self.play_button.setToolTip("再生")
+        self.pause_button.setToolTip("一時停止")
+        self.stop_button.setToolTip("停止")
+        self.rewind_button.setToolTip("先頭へ戻る")
+        for button in [self.play_button, self.pause_button, self.stop_button, self.rewind_button]:
+            button.setFixedWidth(42)
 
         for button in [
             self.play_button,
             self.pause_button,
             self.stop_button,
             self.rewind_button,
-            self.save_project_button,
             self.export_button,
             self.export_mp3_button,
         ]:
             button.setEnabled(False)
 
         self.open_button.clicked.connect(self.open_midi)
-        self.open_project_button.clicked.connect(self.open_project)
-        self.save_project_button.clicked.connect(self.save_project)
         self.play_button.clicked.connect(self.play_midi)
         self.pause_button.clicked.connect(self.pause_midi)
         self.stop_button.clicked.connect(self.stop_midi)
@@ -149,8 +151,6 @@ class MainWindow(QMainWindow):
         self.export_mp3_button.clicked.connect(lambda: self.export_current_audio("mp3"))
 
         transport_layout.addWidget(self.open_button)
-        transport_layout.addWidget(self.open_project_button)
-        transport_layout.addWidget(self.save_project_button)
         transport_layout.addWidget(self.play_button)
         transport_layout.addWidget(self.pause_button)
         transport_layout.addWidget(self.stop_button)
@@ -170,42 +170,49 @@ class MainWindow(QMainWindow):
         self.soundfont_warning_label.setStyleSheet("color: #9a4b00; font-weight: 600;")
 
         control_grid = QGridLayout()
+        control_grid.setColumnStretch(2, 1)
         self.tempo_slider = QSlider(Qt.Orientation.Horizontal)
         self.tempo_slider.setRange(50, 200)
         self.tempo_slider.setValue(100)
-        self.tempo_value_label = QLabel("100%")
+        self.tempo_slider.setFixedWidth(220)
+        self.tempo_minus_button = QPushButton("-")
+        self.tempo_plus_button = QPushButton("+")
+        self.tempo_value_label = QLabel("120 BPM")
+        self.tempo_value_label.setMinimumWidth(72)
         self.tempo_slider.valueChanged.connect(self.set_tempo)
+        self.tempo_minus_button.clicked.connect(lambda: self.step_tempo(-1.0))
+        self.tempo_plus_button.clicked.connect(lambda: self.step_tempo(1.0))
 
         self.key_slider = QSlider(Qt.Orientation.Horizontal)
         self.key_slider.setRange(-12, 12)
         self.key_slider.setValue(0)
+        self.key_slider.setFixedWidth(220)
+        self.key_minus_button = QPushButton("-")
+        self.key_plus_button = QPushButton("+")
         self.key_value_label = QLabel("0")
+        self.key_value_label.setMinimumWidth(32)
         self.key_slider.valueChanged.connect(self.set_key)
+        self.key_minus_button.clicked.connect(lambda: self.step_key(-1))
+        self.key_plus_button.clicked.connect(lambda: self.step_key(1))
+
+        for button in [
+            self.tempo_minus_button,
+            self.tempo_plus_button,
+            self.key_minus_button,
+            self.key_plus_button,
+        ]:
+            button.setFixedWidth(32)
 
         control_grid.addWidget(QLabel("テンポ"), 0, 0)
-        control_grid.addWidget(self.tempo_slider, 0, 1)
-        control_grid.addWidget(self.tempo_value_label, 0, 2)
+        control_grid.addWidget(self.tempo_minus_button, 0, 1)
+        control_grid.addWidget(self.tempo_slider, 0, 2)
+        control_grid.addWidget(self.tempo_plus_button, 0, 3)
+        control_grid.addWidget(self.tempo_value_label, 0, 4)
         control_grid.addWidget(QLabel("キー"), 1, 0)
-        control_grid.addWidget(self.key_slider, 1, 1)
-        control_grid.addWidget(self.key_value_label, 1, 2)
-
-        info_group = QGroupBox("MIDI情報")
-        info_layout = QGridLayout(info_group)
-        self.info_file = QLabel("-")
-        self.info_format = QLabel("-")
-        self.info_tracks = QLabel("-")
-        self.info_ticks = QLabel("-")
-        self.info_length = QLabel("-")
-        info_layout.addWidget(QLabel("ファイル名"), 0, 0)
-        info_layout.addWidget(self.info_file, 0, 1)
-        info_layout.addWidget(QLabel("形式"), 1, 0)
-        info_layout.addWidget(self.info_format, 1, 1)
-        info_layout.addWidget(QLabel("トラック数"), 2, 0)
-        info_layout.addWidget(self.info_tracks, 2, 1)
-        info_layout.addWidget(QLabel("Ticks/beat"), 3, 0)
-        info_layout.addWidget(self.info_ticks, 3, 1)
-        info_layout.addWidget(QLabel("推定時間"), 4, 0)
-        info_layout.addWidget(self.info_length, 4, 1)
+        control_grid.addWidget(self.key_minus_button, 1, 1)
+        control_grid.addWidget(self.key_slider, 1, 2)
+        control_grid.addWidget(self.key_plus_button, 1, 3)
+        control_grid.addWidget(self.key_value_label, 1, 4)
 
         mixer_container = QWidget()
         mixer_layout = QHBoxLayout(mixer_container)
@@ -231,7 +238,6 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.seek_slider)
         root_layout.addWidget(self.soundfont_warning_label)
         root_layout.addLayout(control_grid)
-        root_layout.addWidget(info_group)
         root_layout.addWidget(mixer_scroll, 1)
 
         self.setCentralWidget(root)
@@ -244,16 +250,12 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         open_action = toolbar.addAction("MIDIを開く")
-        open_project_action = toolbar.addAction("プロジェクトを開く")
-        save_project_action = toolbar.addAction("保存")
         settings_action = toolbar.addAction("設定")
         export_action = toolbar.addAction("WAV書き出し")
         export_mp3_action = toolbar.addAction("MP3書き出し")
         help_action = toolbar.addAction("ヘルプ")
 
         open_action.triggered.connect(self.open_midi)
-        open_project_action.triggered.connect(self.open_project)
-        save_project_action.triggered.connect(self.save_project)
         settings_action.triggered.connect(self.open_settings)
         export_action.triggered.connect(lambda: self.export_current_audio("wav"))
         export_mp3_action.triggered.connect(lambda: self.export_current_audio("mp3"))
@@ -444,7 +446,7 @@ class MainWindow(QMainWindow):
 
     def set_tempo(self, value: int) -> None:
         self.mixer_state.tempo_percent = value
-        self.tempo_value_label.setText(f"{value}%")
+        self.tempo_value_label.setText(f"{self._current_tempo_bpm():.0f} BPM")
         self.playback_engine.apply_tempo_or_key_change(self.mixer_state)
 
     def set_key(self, value: int) -> None:
@@ -452,23 +454,34 @@ class MainWindow(QMainWindow):
         self.key_value_label.setText(str(value))
         self.playback_engine.apply_tempo_or_key_change(self.mixer_state)
 
+    def step_tempo(self, bpm_delta: float) -> None:
+        current_percent = self.tempo_slider.value()
+        next_percent = self._percent_for_tempo_bpm(self._current_tempo_bpm() + bpm_delta)
+        if next_percent == current_percent and bpm_delta != 0:
+            next_percent = current_percent + (1 if bpm_delta > 0 else -1)
+        self.tempo_slider.setValue(max(50, min(200, next_percent)))
+
+    def step_key(self, semitone_delta: int) -> None:
+        next_key = max(-12, min(12, self.key_slider.value() + semitone_delta))
+        self.key_slider.setValue(next_key)
+
     def show_about(self) -> None:
         QMessageBox.information(
             self,
             "MIDI Mixer Player",
-            "MIDI Mixer Player\n\nMIDI再生、ミキサー、WAV/MP3書き出し、プロジェクト保存に対応しています。",
+            "MIDI Mixer Player\n\nMIDI再生、ミキサー、WAV/MP3書き出しに対応しています。",
         )
 
     def _load_midi_info(self, midi_info) -> None:
         self.current_midi_path = midi_info.path
         self.current_midi_length = midi_info.estimated_seconds
+        self.current_midi_base_bpm = midi_info.base_bpm
         self.playback_engine.load(midi_info.path, midi_info.estimated_seconds)
         self._show_midi_info(midi_info)
         self.play_button.setEnabled(True)
         self.pause_button.setEnabled(True)
         self.stop_button.setEnabled(True)
         self.rewind_button.setEnabled(True)
-        self.save_project_button.setEnabled(True)
         self.export_button.setEnabled(True)
         self.export_mp3_button.setEnabled(True)
 
@@ -478,7 +491,7 @@ class MainWindow(QMainWindow):
         self.tempo_slider.setValue(self.mixer_state.tempo_percent)
         self.key_slider.setValue(self.mixer_state.key_semitones)
         self.master_strip.set_volume(self.mixer_state.master_volume)
-        self.tempo_value_label.setText(f"{self.mixer_state.tempo_percent}%")
+        self.tempo_value_label.setText(f"{self._current_tempo_bpm():.0f} BPM")
         self.key_value_label.setText(str(self.mixer_state.key_semitones))
         self.tempo_slider.blockSignals(False)
         self.key_slider.blockSignals(False)
@@ -496,11 +509,7 @@ class MainWindow(QMainWindow):
         self.seek_slider.setRange(0, max(0, int(round(midi_info.estimated_seconds))))
         self.seek_slider.setValue(0)
         self.seek_slider.setEnabled(True)
-        self.info_file.setText(midi_info.path.name)
-        self.info_format.setText(str(midi_info.midi_format))
-        self.info_tracks.setText(str(midi_info.track_count))
-        self.info_ticks.setText(str(midi_info.ticks_per_beat))
-        self.info_length.setText(length_text)
+        self.tempo_value_label.setText(f"{self._current_tempo_bpm():.0f} BPM")
 
         for strip, channel in zip(self.mixer_strips, midi_info.channels, strict=True):
             strip.update_channel(channel)
@@ -567,3 +576,13 @@ class MainWindow(QMainWindow):
         total_seconds = max(0, int(round(seconds)))
         minutes, remainder = divmod(total_seconds, 60)
         return f"{minutes:02d}:{remainder:02d}"
+
+    def _current_tempo_bpm(self) -> float:
+        return self.current_midi_base_bpm * self.mixer_state.tempo_percent / 100
+
+    def _percent_for_tempo_bpm(self, bpm: float) -> int:
+        min_bpm = self.current_midi_base_bpm * 0.5
+        max_bpm = self.current_midi_base_bpm * 2.0
+        bounded_bpm = max(min_bpm, min(max_bpm, bpm))
+        percent = round(bounded_bpm / self.current_midi_base_bpm * 100)
+        return max(50, min(200, percent))

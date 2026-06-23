@@ -6,7 +6,7 @@ import mido
 
 from midi_mixer_player.core.models import ChannelInfo, MidiInfo
 from midi_mixer_player.midi.gm_names import gm_program_name
-from midi_mixer_player.midi.tempo_map import estimate_length_seconds
+from midi_mixer_player.midi.tempo_map import estimate_length_seconds, first_bpm
 
 
 class MidiLoadError(RuntimeError):
@@ -60,6 +60,7 @@ def load_midi_info(path: str | Path) -> MidiInfo:
         track_count=len(mid.tracks),
         ticks_per_beat=mid.ticks_per_beat,
         estimated_seconds=estimate_length_seconds(mid),
+        base_bpm=first_bpm(mid),
         title=title,
         channels=channels,
     )
